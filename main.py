@@ -1,25 +1,33 @@
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# دالتك عند بدء البوت
+# دالة start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["💰 رصيدي"]]  # هنا نضع الأزرار (زر واحد الآن)
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("أهلاً بك! اختر من القائمة:", reply_markup=reply_markup)
+    keyboard = [
+        [InlineKeyboardButton("• بدء التعليقات •", callback_data="start_comments")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-# دالة التعامل مع زر "رصيدي"
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text == "💰 رصيدي":
-        await update.message.reply_text("رصيدك الحالي هو: 0.00💵")
-    else:
-        await update.message.reply_text("لم أفهم رسالتك 🤔")
+    await update.message.reply_text(
+        "مرحباً بك يا عزيزي في روبوت الأسئلة 👋\n"
+        "- يمكنك طرح سؤالك للجمهور في أي وقت.\n"
+        "- فقط اضغط على الزر أدناه لبدء التعليقات 💬",
+        reply_markup=reply_markup
+    )
 
-# إنشاء التطبيق
+# دالة معالجة الضغط على الزر
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # لتفادي الرسالة "loading..."
+    
+    if query.data == "start_comments":
+        await query.message.reply_text("تم بدء التعليقات ✅ يمكنك الآن إرسال سؤالك.")
+
+# إعداد التطبيق
 app = ApplicationBuilder().token("ضع_توكن_البوت_هنا").build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+app.add_handler(CallbackQueryHandler(button_callback))
 
 print("🤖 Bot is running...")
 app.run_polling()
