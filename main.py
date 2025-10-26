@@ -1,59 +1,53 @@
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
-)
+import os
+from flask import Flask
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# دالة /start
+# ⚙️ إنشاء تطبيق Flask بسيط ليبقى السيرفر مستيقظًا (مطلوب لـ Render)
+app_flask = Flask(__name__)
+
+@app_flask.route("/")
+def home():
+    return "🤖 Telegram Bot is running on Render!"
+
+# 🤖 دالة عند بدء المحادثة
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # لوحة الأزرار السفلية (reply keyboard)
-    keyboard = [["💰 رصيدي"]]
+    keyboard = [["💰 رصيدي"]]  # الأزرار التي ستظهر للمستخدم
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-    # زر مضمّن أسفل الرسالة (inline button)
-    inline_keyboard = [
-        [InlineKeyboardButton("• بدء التعليقات •", callback_data="start_comments")]
-    ]
-    inline_markup = InlineKeyboardMarkup(inline_keyboard)
-
-    # إرسال الرسالة مع الزرين
     await update.message.reply_text(
-        "أهلاً بك! 👋\n"
-        "اختر من القائمة أدناه أو اضغط على الزر لبدء التعليقات:",
+        "أهلاً بك! 👋\nاختر من القائمة أدناه:",
         reply_markup=reply_markup
     )
 
-    await update.message.reply_text(
-        "⬇️ اضغط هنا:",
-        reply_markup=inline_markup
-    )
-
-# دالة التعامل مع زر "💰 رصيدي"
+# 💬 دالة لمعالجة الرسائل النصية
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+
     if text == "💰 رصيدي":
-        await update.message.reply_text("رصيدك الحالي هو: 0.00💵")
+        await update.message.reply_text("رصيدك الحالي هو: 0.00 💵")
     else:
         await update.message.reply_text("لم أفهم رسالتك 🤔")
 
-# دالة الضغط على زر "بدء التعليقات"
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()  # لتجنب رسالة "Loading..."
-    if query.data == "start_comments":
-        await query.message.reply_text("✅ تم بدء التعليقات! يمكنك الآن إرسال سؤالك.")
+# 🚀 نقطة الدخول الرئيسية للبوت
+def main():
+    bot_token = os.getenv("BOT_TOKEN")  # قراءة التوكن من بيئة Render
 
-# إنشاء التطبيق
-app = ApplicationBuilder().token("ضع_توكن_البوت_هنا").build()
+    if not bot_token:
+        raise ValueError("❌ لم يتم العثور على متغير BOT_TOKEN في إعدادات Render!")
 
-# إضافة المعالجات
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-app.add_handler(CallbackQueryHandler(button_callback))
+    app = ApplicationBuilder().token(bot_token).build()
 
-print("🤖 Bot is running...")
-app.run_polling()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🤖 Bot is running...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    from threading import Thread
+
+    # تشغيل Flask في Thread جانبي
+    Thread(target=lambda: app_flask.run(host="0.0.0.0", port=10000)).start()
+
+    # تشغيل البوت
+    main()
