@@ -18,7 +18,7 @@ if not BOT_TOKEN:
 DB_FILE = "database.db"
 
 # ==============================
-# إعداد قاعدة بيانات SQLite
+# قاعدة بيانات SQLite
 # ==============================
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -35,7 +35,7 @@ def init_db():
         )
     """)
 
-    # جدول طلبات المستخدمين
+    # جدول الطلبات
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,21 +51,20 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_user(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    conn.close()
-    return user
-
 def add_user(user_id, username, first_name):
+    """إضافة المستخدم الجديد مع هدية 500 نقطة"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT OR IGNORE INTO users (user_id, username, first_name, balance, joined_at)
-        VALUES (?, ?, ?, 0, ?)
-    """, (user_id, username, first_name, datetime.utcnow().isoformat()))
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    exists = cursor.fetchone()
+
+    if not exists:
+        cursor.execute("""
+            INSERT INTO users (user_id, username, first_name, balance, joined_at)
+            VALUES (?, ?, ?, 500, ?)
+        """, (user_id, username, first_name, datetime.utcnow().isoformat()))
+        print(f"🎁 مستخدم جديد: {first_name} ({user_id}) حصل على 500 نقطة هدية")
+
     conn.commit()
     conn.close()
 
@@ -110,75 +109,81 @@ def mark_request_done(request_id):
     conn.close()
 
 # ==============================
-# إعداد Flask لإبقاء الخدمة نشطة
+# Flask لإبقاء السيرفر نشط
 # ==============================
 app_flask = Flask(__name__)
 
 @app_flask.route("/")
 def home():
-    return "🤖 بوت تبادل المتابعين يعمل بنجاح!"
+    return "🤖 البوت يعمل الآن بنجاح عبر SQLite!"
 
 def run_flask():
     app_flask.run(host="0.0.0.0", port=10000)
 
 # ==============================
-# Telegram Bot Commands
+# Telegram Bot
 # ==============================
+def main_menu():
+    return ReplyKeyboardMarkup(
+        [["💰 رصيدي", "📢 جمع النقاط"], ["➕ إنشاء طلب متابعين"]],
+        resize_keyboard=True
+    )
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
-    user_id, username, first_name = user.id, user.username, user.first_name
-    add_user(user_id, username, first_name)
-
-    keyboard = [["💰 رصيدي", "📢 جمع النقاط"], ["➕ إنشاء طلب متابعين"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(f"👋 أهلاً {first_name}! اختر من القائمة:", reply_markup=reply_markup)
+    add_user(user.id, user.username, user.first_name)
+    await update.message.reply_text(
+        f"👋 أهلاً {user.first_name}! 🎁 تم منحك 500 نقطة ترحيبية.\nاختر من القائمة:",
+        reply_markup=main_menu()
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user = update.message.from_user
     user_id = user.id
 
-    # --- عرض الرصيد ---
+    # --- الرصيد ---
     if text == "💰 رصيدي":
         balance = get_balance(user_id)
-        await update.message.reply_text(f"💰 رصيدك الحالي: {balance} نقطة")
+        await update.message.reply_text(f"💰 رصيدك الحالي: {balance} نقطة", reply_markup=main_menu())
 
     # --- جمع النقاط ---
     elif text == "📢 جمع النقاط":
         request = get_requests()
         if not request:
-            await update.message.reply_text("📭 لا توجد طلبات حالياً. ارجع لاحقاً.")
+            await update.message.reply_text("📭 لا توجد طلبات حالياً. ارجع لاحقاً.", reply_markup=main_menu())
             return
 
         req_id, req_user_id, link, order_type, quantity = request
         if req_user_id == user_id:
-            await update.message.reply_text("⚠️ لا يمكنك تنفيذ طلبك الخاص.")
+            await update.message.reply_text("⚠️ لا يمكنك تنفيذ طلبك الخاص.", reply_markup=main_menu())
             return
 
         await update.message.reply_text(
             f"🔗 رابط الطلب: {link}\n📌 نوع الطلب: {order_type}\n📈 الكمية: {quantity}\n\n"
-            f"✅ بعد إتمام المتابعة، أرسل كلمة (تم) للحصول على نقاطك."
+            "✅ بعد المتابعة، أرسل كلمة (تم) للحصول على نقاطك.",
+            reply_markup=main_menu()
         )
         context.user_data["current_request"] = req_id
 
     # --- تأكيد المتابعة ---
     elif text.lower() == "تم":
         if "current_request" not in context.user_data:
-            await update.message.reply_text("⚠️ لا يوجد طلب مرتبط بك حالياً.")
+            await update.message.reply_text("⚠️ لا يوجد طلب مرتبط حالياً.", reply_markup=main_menu())
             return
 
-        req_id = context.user_data["current_request"]
+        req_id = context.user_data.pop("current_request")
         mark_request_done(req_id)
         update_balance(user_id, 5)
-        del context.user_data["current_request"]
-        await update.message.reply_text("🎉 تم تأكيد المتابعة! حصلت على +5 نقاط.")
+        await update.message.reply_text("🎉 تم تأكيد المتابعة! حصلت على +5 نقاط.", reply_markup=main_menu())
 
     # --- إنشاء طلب ---
     elif text == "➕ إنشاء طلب متابعين":
         context.user_data["creating_order"] = True
-        keyboard = [["50", "100", "200"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("📸 اختر الكمية المطلوبة:", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "📸 اختر الكمية المطلوبة:",
+            reply_markup=ReplyKeyboardMarkup([["50", "100", "200"]], resize_keyboard=True)
+        )
 
     elif "creating_order" in context.user_data and text.isdigit():
         context.user_data["quantity"] = int(text)
@@ -189,28 +194,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "awaiting_link" in context.user_data:
         link = text
         quantity = context.user_data.get("quantity", 0)
-        cost = quantity // 10 * 5  # كل 10 متابعين = 5 نقاط
-
+        cost = quantity // 10 * 5  # 10 متابعين = 5 نقاط
         balance = get_balance(user_id)
+
         if balance < cost:
-            await update.message.reply_text("❌ رصيدك غير كافٍ لإنشاء هذا الطلب.")
+            await update.message.reply_text(
+                f"❌ رصيدك ({balance}) غير كافٍ لإنشاء الطلب المطلوب ({cost} نقطة).",
+                reply_markup=main_menu()
+            )
             context.user_data.clear()
             return
 
         add_request(user_id, link, "انستغرام", quantity)
         update_balance(user_id, -cost)
-        await update.message.reply_text(f"✅ تم إنشاء طلبك بنجاح!\n🔗 {link}\n📈 الكمية: {quantity}\n💸 تم خصم {cost} نقطة.")
+        await update.message.reply_text(
+            f"✅ تم إنشاء طلبك بنجاح!\n🔗 {link}\n📈 الكمية: {quantity}\n💸 تم خصم {cost} نقطة.",
+            reply_markup=main_menu()
+        )
         context.user_data.clear()
 
     else:
-        await update.message.reply_text("🤖 استخدم الأزرار أدناه للتفاعل مع البوت.")
+        await update.message.reply_text("🤖 استخدم الأزرار أدناه للتفاعل مع البوت.", reply_markup=main_menu())
 
 # ==============================
-# تشغيل Telegram Bot
+# تشغيل البوت
 # ==============================
 def run_bot():
     init_db()
-
     telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -221,7 +231,7 @@ def run_bot():
     loop.run_until_complete(telegram_app.run_polling())
 
 # ==============================
-# تشغيل Flask + Bot
+# تشغيل Flask + البوت معاً
 # ==============================
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
